@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<h1 style="
+font-family:'Playfair Display',serif;
+font-size:3rem;
+margin-bottom:12px;
+">
+Author Dashboard
+</h1>
+
+<p style="
+color:var(--muted);
+margin-bottom:40px;
+">
+Submit and track your conference research papers.
+</p>
+
+
+
+<div class="stats-grid">
+
+    <div class="stat-card">
+
+        <h2>5</h2>
+
+        <p>Submitted Papers</p>
+
+    </div>
+
+
+
+    <div class="stat-card">
+
+        <h2>2</h2>
+
+        <p>Accepted Papers</p>
+
+    </div>
+
+
+
+    <div class="stat-card">
+
+        <h2>1</h2>
+
+        <p>Rejected Papers</p>
+
+    </div>
+
+</div>
+
+
+
+<div class="card-grid">
+
+    <div class="card">
+
+        <h2 style="margin-bottom:15px;">
+            📄 Submit New Paper
+        </h2>
+
+        <p style="
+        color:var(--muted);
+        line-height:1.8;
+        margin-bottom:25px;
+        ">
+            Upload your latest research paper
+            with abstract and keywords.
+        </p>
+
+        <a href="/submit_paper" class="btn btn-gold">
+            Submit Paper
+        </a>
+
+    </div>
+
+
+
+    <div class="card">
+
+        <h2 style="margin-bottom:15px;">
+            📊 Track Status
+        </h2>
+
+        <p style="
+        color:var(--muted);
+        line-height:1.8;
+        margin-bottom:25px;
+        ">
+            Check paper acceptance status,
+            reviews, and reviewer comments.
+        </p>
+
+        <a href="/papers" class="btn btn-dark">
+            View Papers
+        </a>
+
+    </div>
+
+</div>
+
+{% endblock %}

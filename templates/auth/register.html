@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div style="max-width:600px; margin:auto;">
+
+    <div class="card">
+
+        <h1 style="
+        font-family:'Playfair Display',serif;
+        margin-bottom:10px;
+        ">
+            Create Account
+        </h1>
+
+        <p style="
+        color:var(--muted);
+        margin-bottom:35px;
+        ">
+            Register to submit and review conference papers.
+        </p>
+
+
+
+        <form method="POST">
+
+            <div class="form-group">
+
+                <label>Full Name</label>
+
+                <input
+                type="text"
+                name="full_name"
+                placeholder="Enter full name"
+                required>
+
+            </div>
+
+
+
+            <div class="form-group">
+
+                <label>Email Address</label>
+
+                <input
+                type="email"
+                name="email"
+                placeholder="Enter email"
+                required>
+
+            </div>
+
+
+
+            <div class="form-group">
+
+                <label>Password</label>
+
+                <input
+                type="password"
+                name="password"
+                placeholder="Create password"
+                required>
+
+            </div>
+
+
+
+            <div class="form-group">
+
+                <label>Select Role</label>
+
+                <select name="role" required>
+
+                    <option value="">
+                        Choose role
+                    </option>
+
+                    <option value="author">
+                        Author
+                    </option>
+
+                    <option value="reviewer">
+                        Reviewer
+                    </option>
+
+                    <option value="admin">
+                        Admin
+                    </option>
+
+                </select>
+
+            </div>
+
+
+
+            <button
+            type="submit"
+            class="btn btn-gold"
+            style="width:100%;">
+
+                Create Account
+
+            </button>
+
+        </form>
+
+
+
+        <div style="
+        margin-top:25px;
+        text-align:center;
+        color:var(--muted);
+        ">
+
+            Already have an account?
+
+            <a href="/login"
+            style="color:var(--gold);">
+                Login
+            </a>
+
+        </div>
+
+    </div>
+
+</div>
+
+{% endblock %}

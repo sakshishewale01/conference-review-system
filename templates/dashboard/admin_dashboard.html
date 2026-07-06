@@ -1,0 +1,215 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<h1 style="
+font-family:'Playfair Display',serif;
+font-size:3rem;
+margin-bottom:12px;
+">
+Admin Dashboard
+</h1>
+
+<p style="
+color:var(--muted);
+margin-bottom:40px;
+">
+Manage conference papers, reviewers, assignments, and analytics.
+</p>
+
+
+
+<!-- STATS -->
+
+<div class="stats-grid">
+
+    <div class="stat-card">
+
+        <h2>{{ total_papers }}</h2>
+
+        <p>Total Papers</p>
+
+    </div>
+
+
+
+    <div class="stat-card">
+
+        <h2>{{ accepted_papers }}</h2>
+
+        <p>Accepted Papers</p>
+
+    </div>
+
+
+
+    <div class="stat-card">
+
+        <h2>{{ rejected_papers }}</h2>
+
+        <p>Rejected Papers</p>
+
+    </div>
+
+
+
+    <div class="stat-card">
+
+        <h2>{{ total_reviewers }}</h2>
+
+        <p>Total Reviewers</p>
+
+    </div>
+
+</div>
+
+
+
+<!-- QUICK ACTIONS -->
+
+<div class="card">
+
+    <h2 style="
+    margin-bottom:25px;
+    font-family:'Playfair Display',serif;
+    ">
+        Quick Actions
+    </h2>
+
+
+
+    <div style="
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+    gap:20px;
+    ">
+
+        <a href="/submit_paper"
+        class="btn btn-gold"
+        style="
+        text-align:center;
+        justify-content:center;
+        ">
+            Submit Paper
+        </a>
+
+
+
+        <a href="/assign"
+        class="btn btn-dark"
+        style="
+        text-align:center;
+        justify-content:center;
+        ">
+            Assign Reviewer
+        </a>
+
+
+
+        <a href="/review"
+        class="btn btn-dark"
+        style="
+        text-align:center;
+        justify-content:center;
+        ">
+            Submit Review
+        </a>
+
+
+
+        <a href="/papers"
+        class="btn btn-dark"
+        style="
+        text-align:center;
+        justify-content:center;
+        ">
+            View Papers
+        </a>
+
+    </div>
+
+</div>
+
+
+
+<br><br>
+
+
+
+<!-- SYSTEM FEATURES -->
+
+<div class="card-grid">
+
+    <div class="card">
+
+        <h2 style="margin-bottom:15px;">
+            📄 Paper Management
+        </h2>
+
+        <p style="
+        color:var(--muted);
+        line-height:1.8;
+        ">
+            Manage paper submissions, uploaded PDF files,
+            conference topics, and publication workflow.
+        </p>
+
+    </div>
+
+
+
+    <div class="card">
+
+        <h2 style="margin-bottom:15px;">
+            👥 Reviewer Control
+        </h2>
+
+        <p style="
+        color:var(--muted);
+        line-height:1.8;
+        ">
+            Assign reviewers intelligently and monitor
+            reviewer participation and review completion.
+        </p>
+
+    </div>
+
+
+
+    <div class="card">
+
+        <h2 style="margin-bottom:15px;">
+            📊 Analytics
+        </h2>
+
+        <p style="
+        color:var(--muted);
+        line-height:1.8;
+        ">
+            View conference analytics, acceptance rates,
+            average review scores, and performance metrics.
+        </p>
+
+    </div>
+
+
+
+    <div class="card">
+
+        <h2 style="margin-bottom:15px;">
+            🔔 Notifications
+        </h2>
+
+        <p style="
+        color:var(--muted);
+        line-height:1.8;
+        ">
+            Send automatic email notifications to authors,
+            reviewers, and conference administrators.
+        </p>
+
+    </div>
+
+</div>
+
+{% endblock %}

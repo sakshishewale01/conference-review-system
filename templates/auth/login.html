@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div style="max-width:500px; margin:auto;">
+
+    <div class="card">
+
+        <h1 style="
+        font-family:'Playfair Display',serif;
+        margin-bottom:10px;
+        ">
+            Welcome Back
+        </h1>
+
+        <p style="
+        color:var(--muted);
+        margin-bottom:35px;
+        ">
+            Login to access your conference dashboard.
+        </p>
+
+
+
+        <form method="POST">
+
+            <div class="form-group">
+
+                <label>Email Address</label>
+
+                <input
+                type="email"
+                name="email"
+                placeholder="Enter your email"
+                required>
+
+            </div>
+
+
+
+            <div class="form-group">
+
+                <label>Password</label>
+
+                <input
+                type="password"
+                name="password"
+                placeholder="Enter your password"
+                required>
+
+            </div>
+
+
+
+            <button
+            type="submit"
+            class="btn btn-gold"
+            style="width:100%;">
+
+                Login
+
+            </button>
+
+        </form>
+
+
+
+        <div style="
+        margin-top:25px;
+        text-align:center;
+        color:var(--muted);
+        ">
+
+            Don't have an account?
+
+            <a href="/register"
+            style="color:var(--gold);">
+                Register
+            </a>
+
+        </div>
+
+    </div>
+
+</div>
+
+{% endblock %}

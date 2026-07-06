@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<h1 style="
+font-family:'Playfair Display',serif;
+font-size:3rem;
+margin-bottom:15px;
+">
+Reviewers
+</h1>
+
+<p style="
+color:var(--muted);
+margin-bottom:40px;
+">
+Professional reviewers registered in the system.
+</p>
+
+
+
+<div class="card-grid">
+
+{% for reviewer in reviewers %}
+
+<div class="card">
+
+<h2 style="margin-bottom:10px;">
+{{ reviewer.full_name }}
+</h2>
+
+<p style="
+color:var(--muted);
+margin-bottom:10px;
+">
+{{ reviewer.email }}
+</p>
+
+<span class="badge accepted">
+Reviewer
+</span>
+
+</div>
+
+{% endfor %}
+
+</div>
+
+{% endblock %}

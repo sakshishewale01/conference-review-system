@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div style="max-width:700px;margin:auto;">
+
+<div class="card">
+
+<h1 style="
+font-family:'Playfair Display',serif;
+margin-bottom:12px;
+">
+Assign Reviewer
+</h1>
+
+<p style="
+color:var(--muted);
+margin-bottom:35px;
+">
+Assign papers to conference reviewers.
+</p>
+
+
+
+<form method="POST">
+
+<div class="form-group">
+
+<label>Select Paper</label>
+
+<select name="paper_id" required>
+
+{% for paper in papers %}
+
+<option value="{{ paper.paper_id }}">
+
+{{ paper.title }}
+
+</option>
+
+{% endfor %}
+
+</select>
+
+</div>
+
+
+
+<div class="form-group">
+
+<label>Select Reviewer</label>
+
+<select name="reviewer_id" required>
+
+{% for reviewer in reviewers %}
+
+<option value="{{ reviewer.user_id }}">
+
+{{ reviewer.full_name }}
+
+</option>
+
+{% endfor %}
+
+</select>
+
+</div>
+
+
+
+<button
+type="submit"
+class="btn btn-gold">
+
+Assign Reviewer
+
+</button>
+
+</form>
+
+</div>
+
+</div>
+
+{% endblock %}

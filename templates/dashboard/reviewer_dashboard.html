@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<h1 style="
+font-family:'Playfair Display',serif;
+font-size:3rem;
+margin-bottom:12px;
+">
+Reviewer Dashboard
+</h1>
+
+<p style="
+color:var(--muted);
+margin-bottom:40px;
+">
+Review assigned papers and provide detailed feedback.
+</p>
+
+
+
+<div class="stats-grid">
+
+    <div class="stat-card">
+
+        <h2>12</h2>
+
+        <p>Assigned Papers</p>
+
+    </div>
+
+
+
+    <div class="stat-card">
+
+        <h2>8</h2>
+
+        <p>Completed Reviews</p>
+
+    </div>
+
+
+
+    <div class="stat-card">
+
+        <h2>4</h2>
+
+        <p>Pending Reviews</p>
+
+    </div>
+
+</div>
+
+
+
+<div class="card-grid">
+
+    <div class="card">
+
+        <h2 style="margin-bottom:15px;">
+            ✍️ Submit Reviews
+        </h2>
+
+        <p style="
+        color:var(--muted);
+        line-height:1.8;
+        margin-bottom:25px;
+        ">
+            Evaluate research papers using scoring criteria
+            and recommendation systems.
+        </p>
+
+        <a href="/review" class="btn btn-gold">
+            Go to Reviews
+        </a>
+
+    </div>
+
+
+
+    <div class="card">
+
+        <h2 style="margin-bottom:15px;">
+            📄 Assigned Papers
+        </h2>
+
+        <p style="
+        color:var(--muted);
+        line-height:1.8;
+        margin-bottom:25px;
+        ">
+            Access assigned papers, abstracts,
+            uploaded files, and author information.
+        </p>
+
+        <a href="/papers" class="btn btn-dark">
+            View Papers
+        </a>
+
+    </div>
+
+</div>
+
+{% endblock %}

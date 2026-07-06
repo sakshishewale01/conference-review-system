@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div style="max-width:900px;margin:auto;">
+
+<div class="card">
+
+<h1 style="
+font-family:'Playfair Display',serif;
+margin-bottom:12px;
+">
+Submit Review
+</h1>
+
+<p style="
+color:var(--muted);
+margin-bottom:35px;
+">
+Evaluate assigned research papers.
+</p>
+
+
+
+<form method="POST">
+
+<div class="form-group">
+
+<label>Assignment</label>
+
+<select name="assignment_id" required>
+
+{% for assignment in assignments %}
+
+<option value="{{ assignment.assignment_id }}">
+
+Assignment #{{ assignment.assignment_id }}
+
+</option>
+
+{% endfor %}
+
+</select>
+
+</div>
+
+
+
+<div class="stats-grid">
+
+<div class="form-group">
+
+<label>Technical Merit</label>
+
+<input
+type="number"
+name="technical_merit"
+min="1"
+max="10"
+required>
+
+</div>
+
+
+
+<div class="form-group">
+
+<label>Readability</label>
+
+<input
+type="number"
+name="readability"
+min="1"
+max="10"
+required>
+
+</div>
+
+
+
+<div class="form-group">
+
+<label>Originality</label>
+
+<input
+type="number"
+name="originality"
+min="1"
+max="10"
+required>
+
+</div>
+
+
+
+<div class="form-group">
+
+<label>Relevance</label>
+
+<input
+type="number"
+name="relevance"
+min="1"
+max="10"
+required>
+
+</div>
+
+</div>
+
+
+
+<div class="form-group">
+
+<label>Recommendation</label>
+
+<select name="recommendation" required>
+
+<option value="Accepted">
+Accepted</option>
+
+<option value="Rejected">
+Rejected</option>
+
+<option value="Borderline">
+Borderline</option>
+
+</select>
+
+</div>
+
+
+
+<div class="form-group">
+
+<label>Review Comments</label>
+
+<textarea
+name="review_comment"
+rows="6"
+required></textarea>
+
+</div>
+
+
+
+<button
+type="submit"
+class="btn btn-gold">
+
+Submit Review
+
+</button>
+
+</form>
+
+</div>
+
+</div>
+
+{% endblock %}

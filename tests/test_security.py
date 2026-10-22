@@ -172,12 +172,15 @@ class SecurityTests(unittest.TestCase):
             app.app.config["UPLOAD_FOLDER"] = original_upload_dir
 
         self.assertEqual(response.status_code, 302)
-        insert_call = cursor.execute.call_args
+        insert_call = next(
+            call for call in cursor.execute.call_args_list
+            if "INSERT INTO papers" in call.args[0]
+        )
         values = insert_call.args[1]
         self.assertEqual(values[-1], "Pending")
-        self.assertEqual(values[3], "unsafe-name.pdf")
-        self.assertTrue(values[4].endswith(".pdf"))
-        self.assertNotIn("unsafe-name", values[4])
+        self.assertEqual(values[4], "unsafe-name.pdf")
+        self.assertTrue(values[5].endswith(".pdf"))
+        self.assertNotIn("unsafe-name", values[5])
 
     def test_invalid_status_filter_is_rejected(self):
         with patch.object(

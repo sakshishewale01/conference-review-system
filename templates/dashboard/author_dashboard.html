@@ -23,7 +23,7 @@ Submit and track your conference research papers.
 
     <div class="stat-card">
 
-        <h2>5</h2>
+        <h2>{{ total_papers }}</h2>
 
         <p>Submitted Papers</p>
 
@@ -33,7 +33,7 @@ Submit and track your conference research papers.
 
     <div class="stat-card">
 
-        <h2>2</h2>
+        <h2>{{ accepted_papers }}</h2>
 
         <p>Accepted Papers</p>
 
@@ -43,10 +43,22 @@ Submit and track your conference research papers.
 
     <div class="stat-card">
 
-        <h2>1</h2>
+        <h2>{{ rejected_papers }}</h2>
 
         <p>Rejected Papers</p>
 
+    </div>
+
+    <div class="card">
+        <h2>Your submissions</h2>
+        {% for paper in papers %}
+        <p style="margin-top:12px;">
+            <a href="{{ url_for('paper_details', paper_id=paper.paper_id) }}">{{ paper.title }}</a>
+            — {{ paper.status }}
+        </p>
+        {% else %}
+        <p style="color:var(--muted);margin-top:12px;">You have not submitted a paper yet.</p>
+        {% endfor %}
     </div>
 
 </div>

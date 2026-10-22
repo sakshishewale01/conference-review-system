@@ -73,6 +73,8 @@ app.config["PAPER_STATUSES"] = {
     "Accepted",
     "Rejected",
 }
+app.config["DECISION_VALUES"] = {"Accepted", "Rejected"}
+app.config["MAX_DECISION_NOTES_LENGTH"] = 5000
 
 
 def _csrf_token():
@@ -97,6 +99,37 @@ def _validate_csrf():
 @app.context_processor
 def inject_csrf_token():
     return {"csrf_token": _csrf_token}
+
+
+@app.context_processor
+def inject_notification_count():
+    user_id = session.get("user_id")
+    unread_count = 0
+    user_role = None
+    if user_id:
+        try:
+            with cursor_scope(dictionary=True) as (conn, cur):
+                cur.execute(
+                    "SELECT role FROM users WHERE user_id=%s",
+                    (user_id,),
+                )
+                user = cur.fetchone()
+                user_role = user["role"] if user else None
+                cur.execute(
+                    """
+                    SELECT COUNT(*) AS total
+                    FROM notifications
+                    WHERE recipient_id=%s AND read_at IS NULL
+                    """,
+                    (user_id,),
+                )
+                unread_count = cur.fetchone()["total"]
+        except (MySQLError, RuntimeError):
+            app.logger.warning("Notification count unavailable")
+    return {
+        "unread_notification_count": unread_count,
+        "current_user_role": user_role,
+    }
 
 
 @app.before_request
@@ -166,6 +199,18 @@ def _clean_text(value, field_name, max_length):
     return value
 
 
+def _create_notification(cursor, recipient_id, title, message, link, event_key):
+    cursor.execute(
+        """
+        INSERT INTO notifications
+        (recipient_id, title, message, link, event_key)
+        VALUES (%s, %s, %s, %s, %s)
+        ON DUPLICATE KEY UPDATE notification_id=notification_id
+        """,
+        (recipient_id, title, message, link, event_key),
+    )
+
+
 def _clean_email(value):
     email = (value or "").strip().lower()
     parsed_name, parsed_email = parseaddr(email)
@@ -197,6 +242,12 @@ def _allowed_upload(filename):
 def _paper_access_allowed(cursor, paper_id, user):
     if user["role"] == "admin":
         return True
+    if user["role"] == "author":
+        cursor.execute(
+            "SELECT 1 FROM papers WHERE paper_id=%s AND author_id=%s",
+            (paper_id, user["user_id"]),
+        )
+        return cursor.fetchone() is not None
     if user["role"] != "reviewer":
         return False
     cursor.execute(
@@ -478,11 +529,38 @@ def admin_dashboard():
 
             cur.execute("""
                 SELECT COUNT(*) AS total
+                FROM papers AS p
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM review_assignments AS ra
+                    WHERE ra.paper_id=p.paper_id
+                )
+            """)
+            papers_awaiting_assignment = cur.fetchone()["total"]
+
+            cur.execute("""
+                SELECT COUNT(*) AS total
                 FROM review_assignments AS ra
                 LEFT JOIN reviews AS r ON r.assignment_id = ra.assignment_id
                 WHERE r.review_id IS NULL
             """)
             pending_reviews = cur.fetchone()["total"]
+
+            cur.execute("""
+                SELECT COUNT(*) AS total
+                FROM papers AS p
+                WHERE p.status NOT IN ('Accepted', 'Rejected')
+                AND EXISTS (
+                    SELECT 1 FROM review_assignments AS ra
+                    WHERE ra.paper_id=p.paper_id
+                )
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM review_assignments AS ra
+                    LEFT JOIN reviews AS r ON r.assignment_id=ra.assignment_id
+                    WHERE ra.paper_id=p.paper_id AND r.review_id IS NULL
+                )
+            """)
+            papers_awaiting_decision = cur.fetchone()["total"]
     except (MySQLError, RuntimeError) as error:
         app.logger.error(
             "Dashboard database operation failed: %s",
@@ -499,6 +577,8 @@ def admin_dashboard():
         total_assignments=total_assignments,
         completed_reviews=completed_reviews,
         pending_reviews=pending_reviews,
+        papers_awaiting_assignment=papers_awaiting_assignment,
+        papers_awaiting_decision=papers_awaiting_decision,
     )
 
 
@@ -553,9 +633,37 @@ def reviewer_dashboard():
 @app.route("/author_dashboard")
 @role_required("author")
 def author_dashboard():
-
+    try:
+        with cursor_scope(dictionary=True) as (conn, cur):
+            cur.execute("""
+                SELECT COUNT(*) AS total,
+                       SUM(status='Accepted') AS accepted,
+                       SUM(status='Rejected') AS rejected
+                FROM papers
+                WHERE author_id=%s
+            """, (session["user_id"],))
+            counts = cur.fetchone()
+            cur.execute("""
+                SELECT paper_id, title, status, submitted_at,
+                       decision_released_at
+                FROM papers
+                WHERE author_id=%s
+                ORDER BY submitted_at DESC
+                LIMIT 100
+            """, (session["user_id"],))
+            papers = cur.fetchall()
+    except (MySQLError, RuntimeError) as error:
+        app.logger.error(
+            "Author dashboard database operation failed: %s",
+            type(error).__name__
+        )
+        return jsonify(error="Dashboard temporarily unavailable"), 503
     return render_template(
-        "dashboard/author_dashboard.html"
+        "dashboard/author_dashboard.html",
+        total_papers=counts["total"] or 0,
+        accepted_papers=counts["accepted"] or 0,
+        rejected_papers=counts["rejected"] or 0,
+        papers=papers,
     )
 
 
@@ -570,6 +678,7 @@ def author_dashboard():
 )
 @role_required("author", "admin")
 def submit_paper():
+    user = _current_user()
 
     if request.method == "POST":
         try:
@@ -614,15 +723,17 @@ def submit_paper():
                 cur.execute("""
                     INSERT INTO papers
                     (
-                        title,
+                            author_id,
+                            title,
                         abstract,
                         keywords,
                         file_name,
                         uploaded_file_path,
                         status
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """, (
+                    user["user_id"],
                     title,
                     abstract,
                     keywords,
@@ -630,6 +741,21 @@ def submit_paper():
                     filepath,
                     "Pending"
                 ))
+                paper_id = cur.lastrowid
+                cur.execute(
+                    """
+                    INSERT INTO notifications
+                    (recipient_id, title, message, link, event_key)
+                    VALUES (%s, %s, %s, %s, %s)
+                    """,
+                    (
+                        user["user_id"],
+                        "Paper submitted",
+                        "Your paper was submitted successfully.",
+                        url_for("papers"),
+                        f"paper-submitted:{paper_id}",
+                    ),
+                )
                 conn.commit()
         except (MySQLError, RuntimeError) as error:
             if os.path.exists(filepath):
@@ -694,6 +820,9 @@ def papers():
                         WHERE reviewer_id=%s
                     )
                 """
+                values.append(user["user_id"])
+            elif user["role"] == "author":
+                query += " AND author_id=%s"
                 values.append(user["user_id"])
             query += " ORDER BY submitted_at DESC LIMIT 100"
             cur.execute(query, tuple(values))
@@ -821,11 +950,20 @@ def assign():
                         )
                         VALUES (%s, %s)
                     """, (paper_id, reviewer_id))
+                    assignment_id = cur.lastrowid
                     cur.execute("""
                         UPDATE papers
                         SET status = 'Under Review'
                         WHERE paper_id = %s
                     """, (paper_id,))
+                    _create_notification(
+                        cur,
+                        reviewer_id,
+                        "New paper assignment",
+                        "A paper has been assigned to you for review.",
+                        url_for("review"),
+                        f"assignment-created:{assignment_id}",
+                    )
                     conn.commit()
                     flash(
                         "Reviewer assigned successfully!",
@@ -990,6 +1128,22 @@ def review():
                     recommendation,
                     review_comment
                 ))
+                cur.execute(
+                    """
+                    SELECT DISTINCT u.user_id
+                    FROM users AS u
+                    WHERE u.role='admin'
+                    """
+                )
+                for administrator in cur.fetchall():
+                    _create_notification(
+                        cur,
+                        administrator["user_id"],
+                        "Review submitted",
+                        "A reviewer has completed an assigned review.",
+                        url_for("decision_list"),
+                        f"review-submitted:{assignment_id}:{administrator['user_id']}",
+                    )
                 conn.commit()
         except (MySQLError, RuntimeError) as error:
             app.logger.error(
@@ -1033,6 +1187,246 @@ def review():
         "reviews/review.html",
         assignments=assignments
     )
+
+
+# =====================================================
+# FINAL DECISIONS
+# =====================================================
+
+@app.route("/decisions")
+@role_required("admin")
+def decision_list():
+    try:
+        with cursor_scope(dictionary=True) as (conn, cur):
+            cur.execute("""
+                SELECT
+                    p.paper_id, p.title, p.status, p.submitted_at,
+                    COUNT(DISTINCT ra.assignment_id) AS assigned_reviews,
+                    COUNT(DISTINCT r.review_id) AS completed_reviews
+                FROM papers AS p
+                LEFT JOIN review_assignments AS ra ON ra.paper_id=p.paper_id
+                LEFT JOIN reviews AS r ON r.assignment_id=ra.assignment_id
+                GROUP BY p.paper_id, p.title, p.status, p.submitted_at
+                ORDER BY p.submitted_at DESC
+                LIMIT 100
+            """)
+            papers_for_decision = cur.fetchall()
+    except (MySQLError, RuntimeError) as error:
+        app.logger.error(
+            "Decision list database operation failed: %s",
+            type(error).__name__
+        )
+        return jsonify(error="Decision data temporarily unavailable"), 503
+    return render_template(
+        "decisions/list.html",
+        papers=papers_for_decision,
+    )
+
+
+@app.route("/decisions/<int:paper_id>", methods=["GET", "POST"])
+@role_required("admin")
+def record_decision(paper_id):
+    if request.method == "POST":
+        try:
+            decision = request.form["decision"]
+            if decision not in app.config["DECISION_VALUES"]:
+                raise ValueError
+            notes = _clean_text(
+                request.form.get("decision_notes"),
+                "Decision notes",
+                app.config["MAX_DECISION_NOTES_LENGTH"],
+            )
+        except (KeyError, TypeError, ValueError):
+            flash("Choose a valid decision and enter decision notes.", "danger")
+            return redirect(url_for("record_decision", paper_id=paper_id))
+
+        try:
+            with cursor_scope(dictionary=True) as (conn, cur):
+                cur.execute(
+                    """
+                    SELECT paper_id, title, author_id, status
+                    FROM papers WHERE paper_id=%s
+                    """,
+                    (paper_id,),
+                )
+                paper = cur.fetchone()
+                if not paper:
+                    abort(404)
+                cur.execute(
+                    """
+                    SELECT COUNT(*) AS assigned,
+                           COUNT(r.review_id) AS completed
+                    FROM review_assignments AS ra
+                    LEFT JOIN reviews AS r ON r.assignment_id=ra.assignment_id
+                    WHERE ra.paper_id=%s
+                    """,
+                    (paper_id,),
+                )
+                review_summary = cur.fetchone()
+                if (
+                    review_summary["assigned"] == 0
+                    or review_summary["completed"] < review_summary["assigned"]
+                ):
+                    flash(
+                        "All assigned reviews must be completed before deciding.",
+                        "warning",
+                    )
+                    return redirect(
+                        url_for("record_decision", paper_id=paper_id)
+                    )
+                cur.execute(
+                    """
+                    UPDATE papers
+                    SET status=%s, decision_notes=%s, decided_by=%s,
+                        decided_at=CURRENT_TIMESTAMP,
+                        decision_released_at=CURRENT_TIMESTAMP
+                    WHERE paper_id=%s
+                    """,
+                    (
+                        decision,
+                        notes,
+                        session["user_id"],
+                        paper_id,
+                    ),
+                )
+                if paper["author_id"]:
+                    _create_notification(
+                        cur,
+                        paper["author_id"],
+                        "Paper decision released",
+                        f"An official decision is available for paper #{paper_id}.",
+                        url_for("paper_details", paper_id=paper_id),
+                        f"decision-released:{paper_id}:{decision}",
+                    )
+                conn.commit()
+        except (MySQLError, RuntimeError) as error:
+            app.logger.error(
+                "Decision recording database operation failed: %s",
+                type(error).__name__
+            )
+            flash(
+                "The decision could not be recorded. Please try again.",
+                "danger",
+            )
+            return redirect(url_for("record_decision", paper_id=paper_id))
+        flash("Official decision released successfully.", "success")
+        return redirect(url_for("decision_list"))
+
+    try:
+        with cursor_scope(dictionary=True) as (conn, cur):
+            cur.execute(
+                """
+                SELECT paper_id, title, abstract, status, author_id,
+                       submitted_at, decision_notes, decided_at
+                FROM papers WHERE paper_id=%s
+                """,
+                (paper_id,),
+            )
+            paper = cur.fetchone()
+            if not paper:
+                abort(404)
+            cur.execute(
+                """
+                SELECT ra.assignment_id, u.full_name, r.overall_score,
+                       r.recommendation, r.review_comment, r.reviewed_at
+                FROM review_assignments AS ra
+                JOIN users AS u ON u.user_id=ra.reviewer_id
+                LEFT JOIN reviews AS r ON r.assignment_id=ra.assignment_id
+                WHERE ra.paper_id=%s
+                ORDER BY ra.assigned_at
+                """,
+                (paper_id,),
+            )
+            reviews = cur.fetchall()
+    except (MySQLError, RuntimeError) as error:
+        app.logger.error(
+            "Decision details database operation failed: %s",
+            type(error).__name__
+        )
+        return jsonify(error="Decision data temporarily unavailable"), 503
+    return render_template(
+        "decisions/detail.html",
+        paper=paper,
+        reviews=reviews,
+    )
+
+
+# =====================================================
+# NOTIFICATIONS
+# =====================================================
+
+@app.route("/notifications")
+@login_required
+def notifications():
+    try:
+        with cursor_scope(dictionary=True) as (conn, cur):
+            cur.execute(
+                """
+                SELECT notification_id, title, message, link, created_at, read_at
+                FROM notifications
+                WHERE recipient_id=%s
+                ORDER BY created_at DESC
+                LIMIT 100
+                """,
+                (session["user_id"],),
+            )
+            user_notifications = cur.fetchall()
+    except (MySQLError, RuntimeError) as error:
+        app.logger.error(
+            "Notification list database operation failed: %s",
+            type(error).__name__
+        )
+        return jsonify(error="Notifications temporarily unavailable"), 503
+    return render_template(
+        "notifications/list.html",
+        notifications=user_notifications,
+    )
+
+
+@app.route("/notifications/<int:notification_id>/read", methods=["POST"])
+@login_required
+def mark_notification_read(notification_id):
+    try:
+        with cursor_scope() as (conn, cur):
+            cur.execute(
+                """
+                UPDATE notifications
+                SET read_at=CURRENT_TIMESTAMP
+                WHERE notification_id=%s AND recipient_id=%s
+                """,
+                (notification_id, session["user_id"]),
+            )
+            conn.commit()
+    except (MySQLError, RuntimeError) as error:
+        app.logger.error(
+            "Notification update database operation failed: %s",
+            type(error).__name__
+        )
+        return jsonify(error="Notification update unavailable"), 503
+    return redirect(url_for("notifications"))
+
+
+@app.route("/notifications/read-all", methods=["POST"])
+@login_required
+def mark_all_notifications_read():
+    try:
+        with cursor_scope() as (conn, cur):
+            cur.execute(
+                """
+                UPDATE notifications
+                SET read_at=CURRENT_TIMESTAMP
+                WHERE recipient_id=%s AND read_at IS NULL
+                """,
+                (session["user_id"],),
+            )
+            conn.commit()
+    except (MySQLError, RuntimeError) as error:
+        app.logger.error(
+            "Notification bulk update database operation failed: %s",
+            type(error).__name__
+        )
+        return jsonify(error="Notification update unavailable"), 503
+    return redirect(url_for("notifications"))
 
 
 @app.route("/papers/<int:paper_id>/download", methods=["GET"])

@@ -43,17 +43,20 @@ href="{{ url_for('static', filename='css/style.css') }}"
 
         <a href="/">Home</a>
 
-        <a href="/papers">Papers</a>
-
-        <a href="/reviewers">Reviewers</a>
-
-        <a href="/submit_paper">Submit</a>
-
-        <a href="/assign">Assign</a>
-
-        <a href="/review">Review</a>
-
         {% if session.get("user_id") %}
+        <a href="{{ url_for('papers') }}">Papers</a>
+        {% if current_user_role == "admin" %}
+        <a href="{{ url_for('reviewers') }}">Reviewers</a>
+        <a href="{{ url_for('assign') }}">Assign</a>
+        <a href="{{ url_for('decision_list') }}">Decisions</a>
+        {% elif current_user_role == "reviewer" %}
+        <a href="{{ url_for('review') }}">Review</a>
+        {% else %}
+        <a href="{{ url_for('submit_paper') }}">Submit</a>
+        {% endif %}
+        <a href="{{ url_for('notifications') }}">
+            Notifications{% if unread_notification_count %} ({{ unread_notification_count }}){% endif %}
+        </a>
         <form method="POST" action="{{ url_for('logout') }}" style="display:inline;">
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <button type="submit" style="background:none;border:0;color:var(--muted);cursor:pointer;">

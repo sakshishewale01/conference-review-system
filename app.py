@@ -9,7 +9,7 @@ from flask import (
     jsonify
 )
 
-from db import get_connection
+from db import cursor_scope
 
 from werkzeug.security import (
     generate_password_hash,
@@ -20,6 +20,7 @@ from werkzeug.utils import secure_filename
 
 import os
 
+from mysql.connector import Error as MySQLError
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -63,7 +64,10 @@ def health():
 
 @app.errorhandler(500)
 def internal_server_error(error):
-    app.logger.error("Unhandled application error: %s", error)
+    app.logger.error(
+        "Unhandled application error: %s",
+        type(error).__name__
+    )
     return jsonify(
         error="Internal server error"
     ), 500
@@ -99,47 +103,49 @@ def register():
 
         hashed_password = generate_password_hash(password)
 
-        conn = get_connection()
+        try:
+            with cursor_scope() as (conn, cur):
+                cur.execute("""
+                    SELECT * FROM users
+                    WHERE email=%s
+                """, (email,))
 
-        cur = conn.cursor()
+                existing_user = cur.fetchone()
 
-        cur.execute("""
-            SELECT * FROM users
-            WHERE email=%s
-        """, (email,))
+                if existing_user:
+                    flash(
+                        "Email already exists!",
+                        "warning"
+                    )
+                    return redirect(url_for("register"))
 
-        existing_user = cur.fetchone()
+                cur.execute("""
+                    INSERT INTO users
+                    (
+                        full_name,
+                        email,
+                        password,
+                        role
+                    )
+                    VALUES (%s, %s, %s, %s)
+                """, (
+                    full_name,
+                    email,
+                    hashed_password,
+                    role
+                ))
 
-        if existing_user:
-
+                conn.commit()
+        except (MySQLError, RuntimeError) as error:
+            app.logger.error(
+                "Registration database operation failed: %s",
+                type(error).__name__
+            )
             flash(
-                "Email already exists!",
-                "warning"
+                "Registration is temporarily unavailable. Please try again.",
+                "danger"
             )
-
-            conn.close()
-
-            return redirect(url_for("register"))
-
-        cur.execute("""
-            INSERT INTO users
-            (
-                full_name,
-                email,
-                password,
-                role
-            )
-            VALUES (%s, %s, %s, %s)
-        """, (
-            full_name,
-            email,
-            hashed_password,
-            role
-        ))
-
-        conn.commit()
-
-        conn.close()
+            return render_template("auth/register.html"), 503
 
         flash(
             "Registration successful!",
@@ -165,18 +171,23 @@ def login():
 
         password = request.form["password"]
 
-        conn = get_connection()
-
-        cur = conn.cursor(dictionary=True)
-
-        cur.execute("""
-            SELECT * FROM users
-            WHERE email=%s
-        """, (email,))
-
-        user = cur.fetchone()
-
-        conn.close()
+        try:
+            with cursor_scope(dictionary=True) as (conn, cur):
+                cur.execute("""
+                    SELECT * FROM users
+                    WHERE email=%s
+                """, (email,))
+                user = cur.fetchone()
+        except (MySQLError, RuntimeError) as error:
+            app.logger.error(
+                "Login database operation failed: %s",
+                type(error).__name__
+            )
+            flash(
+                "Login is temporarily unavailable. Please try again.",
+                "danger"
+            )
+            return render_template("auth/login.html"), 503
 
         if user and check_password_hash(
             user["password"],
@@ -239,47 +250,40 @@ def logout():
 
 @app.route("/admin_dashboard")
 def admin_dashboard():
+    try:
+        with cursor_scope(dictionary=True) as (conn, cur):
+            cur.execute("""
+                SELECT COUNT(*) AS total
+                FROM papers
+            """)
+            total_papers = cur.fetchone()["total"]
 
-    conn = get_connection()
+            cur.execute("""
+                SELECT COUNT(*) AS total
+                FROM papers
+                WHERE status='Accepted'
+            """)
+            accepted_papers = cur.fetchone()["total"]
 
-    cur = conn.cursor(dictionary=True)
+            cur.execute("""
+                SELECT COUNT(*) AS total
+                FROM papers
+                WHERE status='Rejected'
+            """)
+            rejected_papers = cur.fetchone()["total"]
 
-    # TOTAL PAPERS
-    cur.execute("""
-        SELECT COUNT(*) AS total
-        FROM papers
-    """)
-
-    total_papers = cur.fetchone()["total"]
-
-    # ACCEPTED PAPERS
-    cur.execute("""
-        SELECT COUNT(*) AS total
-        FROM papers
-        WHERE status='Accepted'
-    """)
-
-    accepted_papers = cur.fetchone()["total"]
-
-    # REJECTED PAPERS
-    cur.execute("""
-        SELECT COUNT(*) AS total
-        FROM papers
-        WHERE status='Rejected'
-    """)
-
-    rejected_papers = cur.fetchone()["total"]
-
-    # TOTAL REVIEWERS
-    cur.execute("""
-        SELECT COUNT(*) AS total
-        FROM users
-        WHERE role='reviewer'
-    """)
-
-    total_reviewers = cur.fetchone()["total"]
-
-    conn.close()
+            cur.execute("""
+                SELECT COUNT(*) AS total
+                FROM users
+                WHERE role='reviewer'
+            """)
+            total_reviewers = cur.fetchone()["total"]
+    except (MySQLError, RuntimeError) as error:
+        app.logger.error(
+            "Dashboard database operation failed: %s",
+            type(error).__name__
+        )
+        return jsonify(error="Database temporarily unavailable"), 503
 
     return render_template(
         "dashboard/admin_dashboard.html",
@@ -348,31 +352,36 @@ def submit_paper():
 
         paper_file.save(filepath)
 
-        conn = get_connection()
-
-        cur = conn.cursor()
-
-        cur.execute("""
-            INSERT INTO papers
-            (
-                title,
-                abstract,
-                keywords,
-                file_name,
-                uploaded_file_path
+        try:
+            with cursor_scope() as (conn, cur):
+                cur.execute("""
+                    INSERT INTO papers
+                    (
+                        title,
+                        abstract,
+                        keywords,
+                        file_name,
+                        uploaded_file_path
+                    )
+                    VALUES (%s, %s, %s, %s, %s)
+                """, (
+                    title,
+                    abstract,
+                    keywords,
+                    filename,
+                    filepath
+                ))
+                conn.commit()
+        except (MySQLError, RuntimeError) as error:
+            app.logger.error(
+                "Paper submission database operation failed: %s",
+                type(error).__name__
             )
-            VALUES (%s, %s, %s, %s, %s)
-        """, (
-            title,
-            abstract,
-            keywords,
-            filename,
-            filepath
-        ))
-
-        conn.commit()
-
-        conn.close()
+            flash(
+                "Paper submission is temporarily unavailable. Please try again.",
+                "danger"
+            )
+            return render_template("papers/submit_paper.html"), 503
 
         flash(
             "Paper submitted successfully!",
@@ -393,20 +402,20 @@ def submit_paper():
 
 @app.route("/papers")
 def papers():
-
-    conn = get_connection()
-
-    cur = conn.cursor(dictionary=True)
-
-    cur.execute("""
-        SELECT *
-        FROM papers
-        ORDER BY submitted_at DESC
-    """)
-
-    papers = cur.fetchall()
-
-    conn.close()
+    try:
+        with cursor_scope(dictionary=True) as (conn, cur):
+            cur.execute("""
+                SELECT *
+                FROM papers
+                ORDER BY submitted_at DESC
+            """)
+            papers = cur.fetchall()
+    except (MySQLError, RuntimeError) as error:
+        app.logger.error(
+            "Paper listing database operation failed: %s",
+            type(error).__name__
+        )
+        return jsonify(error="Database temporarily unavailable"), 503
 
     return render_template(
         "papers/papers.html",
@@ -421,20 +430,20 @@ def papers():
 
 @app.route("/reviewers")
 def reviewers():
-
-    conn = get_connection()
-
-    cur = conn.cursor(dictionary=True)
-
-    cur.execute("""
-        SELECT *
-        FROM users
-        WHERE role='reviewer'
-    """)
-
-    reviewers = cur.fetchall()
-
-    conn.close()
+    try:
+        with cursor_scope(dictionary=True) as (conn, cur):
+            cur.execute("""
+                SELECT *
+                FROM users
+                WHERE role='reviewer'
+            """)
+            reviewers = cur.fetchall()
+    except (MySQLError, RuntimeError) as error:
+        app.logger.error(
+            "Reviewer listing database operation failed: %s",
+            type(error).__name__
+        )
+        return jsonify(error="Database temporarily unavailable"), 503
 
     return render_template(
         "reviewers/reviewers.html",
@@ -449,135 +458,77 @@ def reviewers():
 
 @app.route("/assign", methods=["GET", "POST"])
 def assign():
-
-    # DATABASE CONNECTION
-    conn = get_connection()
-
-    # CURSOR
-    cur = conn.cursor(dictionary=True)
-
-    # =================================================
-    # HANDLE FORM SUBMISSION
-    # =================================================
-
     if request.method == "POST":
-
-        # GET FORM DATA
         paper_id = request.form["paper_id"]
-
         reviewer_id = request.form["reviewer_id"]
 
-        # =================================================
-        # CHECK IF REVIEWER ALREADY ASSIGNED
-        # =================================================
+        try:
+            with cursor_scope(dictionary=True) as (conn, cur):
+                cur.execute("""
+                    SELECT *
+                    FROM review_assignments
+                    WHERE paper_id = %s
+                    AND reviewer_id = %s
+                """, (paper_id, reviewer_id))
+                existing_assignment = cur.fetchone()
 
-        cur.execute("""
-            SELECT *
-            FROM review_assignments
-            WHERE paper_id = %s
-            AND reviewer_id = %s
-        """, (
-            paper_id,
-            reviewer_id
-        ))
-
-        existing_assignment = cur.fetchone()
-
-        # =================================================
-        # IF REVIEWER ALREADY ASSIGNED
-        # =================================================
-
-        if existing_assignment:
-
+                if existing_assignment:
+                    flash(
+                        "Reviewer already assigned to this paper!",
+                        "warning"
+                    )
+                else:
+                    cur.execute("""
+                        INSERT INTO review_assignments
+                        (
+                            paper_id,
+                            reviewer_id
+                        )
+                        VALUES (%s, %s)
+                    """, (paper_id, reviewer_id))
+                    cur.execute("""
+                        UPDATE papers
+                        SET status = 'Under Review'
+                        WHERE paper_id = %s
+                    """, (paper_id,))
+                    conn.commit()
+                    flash(
+                        "Reviewer assigned successfully!",
+                        "success"
+                    )
+        except (MySQLError, RuntimeError) as error:
+            app.logger.error(
+                "Reviewer assignment database operation failed: %s",
+                type(error).__name__
+            )
             flash(
-                "Reviewer already assigned to this paper!",
-                "warning"
+                "Reviewer assignment is temporarily unavailable. Please try again.",
+                "danger"
             )
 
-        else:
+        return redirect(url_for("admin_dashboard"))
 
-            # =================================================
-            # INSERT NEW ASSIGNMENT
-            # =================================================
+    try:
+        with cursor_scope(dictionary=True) as (conn, cur):
+            cur.execute("""
+                SELECT *
+                FROM papers
+                ORDER BY submitted_at DESC
+            """)
+            papers = cur.fetchall()
 
             cur.execute("""
-                INSERT INTO review_assignments
-                (
-                    paper_id,
-                    reviewer_id
-                )
-                VALUES (%s, %s)
-            """, (
-                paper_id,
-                reviewer_id
-            ))
-
-            # =================================================
-            # UPDATE PAPER STATUS
-            # =================================================
-
-            cur.execute("""
-                UPDATE papers
-                SET status = 'Under Review'
-                WHERE paper_id = %s
-            """, (
-                paper_id,
-            ))
-
-            # =================================================
-            # SAVE CHANGES
-            # =================================================
-
-            conn.commit()
-
-            flash(
-                "Reviewer assigned successfully!",
-                "success"
-            )
-
-        # =================================================
-        # CLOSE CONNECTION
-        # =================================================
-
-        conn.close()
-
-        return redirect(
-            url_for("admin_dashboard")
+                SELECT *
+                FROM users
+                WHERE role = 'reviewer'
+            """)
+            reviewers = cur.fetchall()
+    except (MySQLError, RuntimeError) as error:
+        app.logger.error(
+            "Assignment page database operation failed: %s",
+            type(error).__name__
         )
-
-    # =================================================
-    # FETCH ALL PAPERS
-    # =================================================
-
-    cur.execute("""
-        SELECT *
-        FROM papers
-        ORDER BY submitted_at DESC
-    """)
-
-    papers = cur.fetchall()
-
-    # =================================================
-    # FETCH ALL REVIEWERS
-    # =================================================
-
-    cur.execute("""
-        SELECT *
-        FROM users
-        WHERE role = 'reviewer'
-    """)
-
-    reviewers = cur.fetchall()
-
-    # =================================================
-    # CLOSE CONNECTION
-    # =================================================
-
-    conn.close()
-
-    # =================================================
-    # RENDER TEMPLATE
-    # =================================================
+        return jsonify(error="Database temporarily unavailable"), 503
 
     return render_template(
         "reviews/assign.html",
@@ -594,11 +545,6 @@ def assign():
     methods=["GET", "POST"]
 )
 def review():
-
-    conn = get_connection()
-
-    cur = conn.cursor(dictionary=True)
-
     if request.method == "POST":
 
         assignment_id = request.form["assignment_id"]
@@ -637,32 +583,43 @@ def review():
             1
         )
 
-        cur.execute("""
-            INSERT INTO reviews
-            (
-                assignment_id,
-                technical_merit,
-                readability,
-                originality,
-                relevance,
-                overall_score,
-                recommendation,
-                review_comment
+        try:
+            with cursor_scope(dictionary=True) as (conn, cur):
+                cur.execute("""
+                    INSERT INTO reviews
+                    (
+                        assignment_id,
+                        technical_merit,
+                        readability,
+                        originality,
+                        relevance,
+                        overall_score,
+                        recommendation,
+                        review_comment
+                    )
+                    VALUES
+                    (%s,%s,%s,%s,%s,%s,%s,%s)
+                """, (
+                    assignment_id,
+                    technical_merit,
+                    readability,
+                    originality,
+                    relevance,
+                    overall_score,
+                    recommendation,
+                    review_comment
+                ))
+                conn.commit()
+        except (MySQLError, RuntimeError) as error:
+            app.logger.error(
+                "Review submission database operation failed: %s",
+                type(error).__name__
             )
-            VALUES
-            (%s,%s,%s,%s,%s,%s,%s,%s)
-        """, (
-            assignment_id,
-            technical_merit,
-            readability,
-            originality,
-            relevance,
-            overall_score,
-            recommendation,
-            review_comment
-        ))
-
-        conn.commit()
+            flash(
+                "Review submission is temporarily unavailable. Please try again.",
+                "danger"
+            )
+            return render_template("reviews/review.html"), 503
 
         flash(
             "Review submitted successfully!",
@@ -673,14 +630,19 @@ def review():
             url_for("admin_dashboard")
         )
 
-    cur.execute("""
-        SELECT *
-        FROM review_assignments
-    """)
-
-    assignments = cur.fetchall()
-
-    conn.close()
+    try:
+        with cursor_scope(dictionary=True) as (conn, cur):
+            cur.execute("""
+                SELECT *
+                FROM review_assignments
+            """)
+            assignments = cur.fetchall()
+    except (MySQLError, RuntimeError) as error:
+        app.logger.error(
+            "Review page database operation failed: %s",
+            type(error).__name__
+        )
+        return jsonify(error="Database temporarily unavailable"), 503
 
     return render_template(
         "reviews/review.html",

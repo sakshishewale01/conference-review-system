@@ -5,7 +5,8 @@ from flask import (
     redirect,
     url_for,
     flash,
-    session
+    session,
+    jsonify
 )
 
 from db import get_connection
@@ -42,6 +43,30 @@ app.secret_key = secret_key
 UPLOAD_FOLDER = os.path.join(app.root_path, "static", "uploads")
 
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+
+
+# =====================================================
+# HEALTH CHECK
+# =====================================================
+
+@app.route("/health", methods=["GET"])
+def health():
+    return jsonify(
+        status="ok",
+        service="ConferenceFlow"
+    ), 200
+
+
+# =====================================================
+# ERROR HANDLING
+# =====================================================
+
+@app.errorhandler(500)
+def internal_server_error(error):
+    app.logger.error("Unhandled application error: %s", error)
+    return jsonify(
+        error="Internal server error"
+    ), 500
 
 
 

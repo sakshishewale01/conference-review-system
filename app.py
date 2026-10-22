@@ -298,6 +298,11 @@ def forbidden(error):
     return jsonify(error="Forbidden"), 403
 
 
+@app.errorhandler(404)
+def not_found(error):
+    return jsonify(error="Not found"), 404
+
+
 @app.errorhandler(413)
 def request_too_large(error):
     return jsonify(error="Uploaded file is too large"), 413

@@ -1,0 +1,31 @@
+-- Phase 7 database quality proposal.
+-- Inspect duplicates before applying to an existing database.
+-- These statements are intentionally not executed automatically.
+
+-- SELECT paper_id, reviewer_id, COUNT(*) AS duplicate_count
+-- FROM review_assignments
+-- GROUP BY paper_id, reviewer_id
+-- HAVING COUNT(*) > 1;
+--
+-- SELECT assignment_id, COUNT(*) AS duplicate_count
+-- FROM reviews
+-- GROUP BY assignment_id
+-- HAVING COUNT(*) > 1;
+
+-- After duplicate data is resolved:
+-- ALTER TABLE review_assignments
+--     MODIFY paper_id INT NOT NULL,
+--     MODIFY reviewer_id INT NOT NULL,
+--     ADD CONSTRAINT uq_assignment_paper_reviewer
+--         UNIQUE (paper_id, reviewer_id);
+--
+-- ALTER TABLE reviews
+--     MODIFY assignment_id INT NOT NULL,
+--     ADD CONSTRAINT uq_review_assignment_id
+--         UNIQUE (assignment_id);
+
+-- Roll back only with an approved backup and change review:
+-- ALTER TABLE review_assignments
+--     DROP INDEX uq_assignment_paper_reviewer;
+-- ALTER TABLE reviews
+--     DROP INDEX uq_review_assignment_id;

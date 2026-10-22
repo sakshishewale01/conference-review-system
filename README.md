@@ -122,12 +122,17 @@ Add screenshots inside the `screenshots` folder.
 
 ---
 
-## Future Improvements
+## Deployment readiness
 
-- Email Notifications
-- PDF Upload
-- AI-based Reviewer Recommendation
-- Conference Statistics Dashboard
+The local Flask application is configured for a Vercel entry point in
+[`api/index.py`](api/index.py) and [`vercel.json`](vercel.json). Vercel still
+requires an externally reachable MySQL database and durable private storage
+for uploaded PDFs; the local `instance/uploads` directory is not suitable for
+permanent hosted storage.
+
+See [`docs/PHASE_7_DEPLOYMENT.md`](docs/PHASE_7_DEPLOYMENT.md) for the safe
+deployment checklist and [`docs/PHASE_7_FINAL_INTEGRATION.md`](docs/PHASE_7_FINAL_INTEGRATION.md)
+for the final QA report.
 
 ---
 

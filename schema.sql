@@ -87,9 +87,9 @@ CREATE TABLE review_assignments (
 
     assignment_id INT PRIMARY KEY AUTO_INCREMENT,
 
-    paper_id INT,
+    paper_id INT NOT NULL,
 
-    reviewer_id INT,
+    reviewer_id INT NOT NULL,
 
     assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
@@ -97,7 +97,9 @@ CREATE TABLE review_assignments (
     REFERENCES papers(paper_id),
 
     FOREIGN KEY (reviewer_id)
-    REFERENCES users(user_id)
+    REFERENCES users(user_id),
+
+    UNIQUE (paper_id, reviewer_id)
 
 );
 
@@ -107,7 +109,7 @@ CREATE TABLE reviews (
 
     review_id INT PRIMARY KEY AUTO_INCREMENT,
 
-    assignment_id INT,
+    assignment_id INT NOT NULL,
 
     technical_merit FLOAT,
 
@@ -126,6 +128,8 @@ CREATE TABLE reviews (
     reviewed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
     FOREIGN KEY (assignment_id)
-    REFERENCES review_assignments(assignment_id)
+    REFERENCES review_assignments(assignment_id),
+
+    UNIQUE (assignment_id)
 
 );

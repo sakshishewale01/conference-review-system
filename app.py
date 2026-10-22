@@ -62,6 +62,17 @@ app.config["ALLOWED_UPLOAD_EXTENSIONS"] = {"pdf"}
 app.config["MAX_NAME_LENGTH"] = 150
 app.config["MAX_EMAIL_LENGTH"] = 150
 app.config["MIN_PASSWORD_LENGTH"] = 12
+app.config["MAX_TITLE_LENGTH"] = 255
+app.config["MAX_ABSTRACT_LENGTH"] = 10000
+app.config["MAX_KEYWORDS_LENGTH"] = 1000
+app.config["MIN_TITLE_LENGTH"] = 5
+app.config["MIN_ABSTRACT_LENGTH"] = 50
+app.config["PAPER_STATUSES"] = {
+    "Pending",
+    "Under Review",
+    "Accepted",
+    "Rejected",
+}
 
 
 def _csrf_token():
@@ -181,6 +192,22 @@ def _allowed_upload(filename):
         and filename.rsplit(".", 1)[1].lower()
         in app.config["ALLOWED_UPLOAD_EXTENSIONS"]
     )
+
+
+def _paper_access_allowed(cursor, paper_id, user):
+    if user["role"] == "admin":
+        return True
+    if user["role"] != "reviewer":
+        return False
+    cursor.execute(
+        """
+        SELECT 1
+        FROM review_assignments
+        WHERE paper_id=%s AND reviewer_id=%s
+        """,
+        (paper_id, user["user_id"]),
+    )
+    return cursor.fetchone() is not None
 
 
 # =====================================================
@@ -500,12 +527,24 @@ def submit_paper():
 
     if request.method == "POST":
         try:
-            title = _clean_text(request.form.get("title"), "Title", 255)
-            abstract = _clean_text(
-                request.form.get("abstract"), "Abstract", 10000
+            title = _clean_text(
+                request.form.get("title"),
+                "Title",
+                app.config["MAX_TITLE_LENGTH"],
             )
+            if len(title) < app.config["MIN_TITLE_LENGTH"]:
+                raise ValueError("Title is too short.")
+            abstract = _clean_text(
+                request.form.get("abstract"),
+                "Abstract",
+                app.config["MAX_ABSTRACT_LENGTH"],
+            )
+            if len(abstract) < app.config["MIN_ABSTRACT_LENGTH"]:
+                raise ValueError("Abstract is too short.")
             keywords = _clean_text(
-                request.form.get("keywords"), "Keywords", 1000
+                request.form.get("keywords"),
+                "Keywords",
+                app.config["MAX_KEYWORDS_LENGTH"],
             )
         except ValueError as error:
             flash(str(error), "danger")
@@ -533,15 +572,17 @@ def submit_paper():
                         abstract,
                         keywords,
                         file_name,
-                        uploaded_file_path
+                        uploaded_file_path,
+                        status
                     )
-                    VALUES (%s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s)
                 """, (
                     title,
                     abstract,
                     keywords,
                     filename,
-                    filepath
+                    filepath,
+                    "Pending"
                 ))
                 conn.commit()
         except (MySQLError, RuntimeError) as error:
@@ -577,13 +618,39 @@ def submit_paper():
 @app.route("/papers")
 @login_required
 def papers():
+    user = _current_user()
+    search = request.args.get("search", "").strip()
+    status = request.args.get("status", "").strip()
+    if status and status not in app.config["PAPER_STATUSES"]:
+        abort(400)
+    if len(search) > 100:
+        abort(400)
+
     try:
         with cursor_scope(dictionary=True) as (conn, cur):
-            cur.execute("""
+            query = """
                 SELECT *
                 FROM papers
-                ORDER BY submitted_at DESC
-            """)
+                WHERE 1=1
+            """
+            values = []
+            if search:
+                query += " AND (title LIKE %s OR paper_id = %s)"
+                values.extend([f"%{search}%", search if search.isdigit() else -1])
+            if status:
+                query += " AND status=%s"
+                values.append(status)
+            if user["role"] == "reviewer":
+                query += """
+                    AND paper_id IN (
+                        SELECT paper_id
+                        FROM review_assignments
+                        WHERE reviewer_id=%s
+                    )
+                """
+                values.append(user["user_id"])
+            query += " ORDER BY submitted_at DESC LIMIT 100"
+            cur.execute(query, tuple(values))
             papers = cur.fetchall()
     except (MySQLError, RuntimeError) as error:
         app.logger.error(
@@ -594,8 +661,30 @@ def papers():
 
     return render_template(
         "papers/papers.html",
-        papers=papers
+        papers=papers,
+        search=search,
+        selected_status=status,
+        statuses=sorted(app.config["PAPER_STATUSES"]),
     )
+
+
+@app.route("/papers/<int:paper_id>")
+@login_required
+def paper_details(paper_id):
+    user = _current_user()
+    try:
+        with cursor_scope(dictionary=True) as (conn, cur):
+            cur.execute(
+                "SELECT * FROM papers WHERE paper_id=%s",
+                (paper_id,),
+            )
+            paper = cur.fetchone()
+            if not paper or not _paper_access_allowed(cur, paper_id, user):
+                abort(404)
+    except (MySQLError, RuntimeError):
+        return jsonify(error="Paper temporarily unavailable"), 503
+
+    return render_template("papers/paper_details.html", paper=paper)
 
 
 
@@ -852,6 +941,7 @@ def review():
 @app.route("/papers/<int:paper_id>/download", methods=["GET"])
 @login_required
 def download_paper(paper_id):
+    user = _current_user()
     try:
         with cursor_scope(dictionary=True) as (conn, cur):
             cur.execute(
@@ -863,6 +953,8 @@ def download_paper(paper_id):
                 (paper_id,),
             )
             paper = cur.fetchone()
+            if not paper or not _paper_access_allowed(cur, paper_id, user):
+                abort(404)
     except (MySQLError, RuntimeError):
         return jsonify(error="File temporarily unavailable"), 503
 

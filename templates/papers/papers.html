@@ -14,8 +14,22 @@ Research Papers
 color:var(--muted);
 margin-bottom:40px;
 ">
-View all submitted conference papers.
+View papers available to your account. Reviewers see assigned papers.
 </p>
+
+<form method="GET" style="margin-bottom:24px;display:flex;gap:12px;flex-wrap:wrap;">
+<input type="search" name="search" value="{{ search }}" maxlength="100"
+placeholder="Search title or paper ID">
+<select name="status">
+<option value="">All statuses</option>
+{% for status in statuses %}
+<option value="{{ status }}" {% if status == selected_status %}selected{% endif %}>
+{{ status }}
+</option>
+{% endfor %}
+</select>
+<button type="submit" class="btn btn-dark">Filter</button>
+</form>
 
 
 
@@ -74,6 +88,11 @@ Pending
 </td>
 
 <td>
+<a
+href="{{ url_for('paper_details', paper_id=paper.paper_id) }}"
+style="color:var(--gold);margin-right:12px;">
+Details
+</a>
 
 <a
 href="{{ url_for('download_paper', paper_id=paper.paper_id) }}"
@@ -95,5 +114,10 @@ View PDF
 </table>
 
 </div>
+{% else %}
+<div class="card">
+<p style="color:var(--muted);">No papers match your search.</p>
+</div>
+{% endif %}
 
 {% endblock %}

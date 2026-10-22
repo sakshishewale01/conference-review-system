@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div style="max-width:850px;margin:auto;">
+    <div class="card">
+        <h1 style="font-family:'Playfair Display',serif;">{{ paper.title }}</h1>
+        <p style="color:var(--muted);margin:12px 0 24px;">
+            Paper #{{ paper.paper_id }} · Submitted {{ paper.submitted_at }}
+        </p>
+
+        <p><strong>Status:</strong> {{ paper.status }}</p>
+        <p style="margin-top:20px;"><strong>Keywords:</strong> {{ paper.keywords }}</p>
+        <h2 style="margin-top:28px;">Abstract</h2>
+        <p style="white-space:pre-wrap;color:var(--muted);margin-top:10px;">
+            {{ paper.abstract }}
+        </p>
+
+        <a class="btn btn-gold"
+           href="{{ url_for('download_paper', paper_id=paper.paper_id) }}"
+           target="_blank">
+            Download PDF
+        </a>
+    </div>
+</div>
+{% endblock %}

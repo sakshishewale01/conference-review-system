@@ -17,7 +17,8 @@ Submit Research Paper
 color:var(--muted);
 margin-bottom:35px;
 ">
-Upload your conference paper with abstract and keywords.
+Upload a PDF paper with a meaningful abstract and keywords.
+Maximum file size: 10 MB.
 </p>
 
 <form method="POST" enctype="multipart/form-data">
@@ -31,6 +32,8 @@ Upload your conference paper with abstract and keywords.
 <input
 type="text"
 name="title"
+minlength="5"
+maxlength="255"
 placeholder="Enter paper title"
 required>
 
@@ -45,6 +48,8 @@ required>
 <textarea
 name="abstract"
 rows="6"
+minlength="50"
+maxlength="10000"
 placeholder="Enter abstract"
 required></textarea>
 
@@ -59,6 +64,7 @@ required></textarea>
 <input
 type="text"
 name="keywords"
+maxlength="1000"
 placeholder="AI, ML, DBMS..."
 required>
 

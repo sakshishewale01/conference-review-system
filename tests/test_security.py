@@ -1,4 +1,5 @@
 import io
+import tempfile
 import unittest
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
@@ -137,6 +138,55 @@ class SecurityTests(unittest.TestCase):
     def test_session_cookie_security_configuration(self):
         self.assertTrue(app.app.config["SESSION_COOKIE_HTTPONLY"])
         self.assertEqual(app.app.config["SESSION_COOKIE_SAMESITE"], "Lax")
+
+    def test_valid_submission_uses_generated_pdf_path_and_pending_status(self):
+        connection = MagicMock()
+        cursor = MagicMock()
+        connection.cursor.return_value = cursor
+        user = {"user_id": 8, "role": "author"}
+
+        @contextmanager
+        def fake_scope(dictionary=False):
+            yield connection, cursor
+
+        with tempfile.TemporaryDirectory() as upload_dir:
+            original_upload_dir = app.app.config["UPLOAD_FOLDER"]
+            app.app.config["UPLOAD_FOLDER"] = upload_dir
+            token = self._csrf_token("/register")
+            with patch.object(app, "_current_user", return_value=user):
+                with patch.object(app, "cursor_scope", fake_scope):
+                    response = self.client.post(
+                        "/submit_paper",
+                        data={
+                            "_csrf_token": token,
+                            "title": "A meaningful paper title",
+                            "abstract": "A meaningful abstract " * 5,
+                            "keywords": "flask, security",
+                            "paper_file": (
+                                io.BytesIO(b"%PDF-1.7 test"),
+                                "../../unsafe-name.pdf",
+                            ),
+                        },
+                        content_type="multipart/form-data",
+                    )
+            app.app.config["UPLOAD_FOLDER"] = original_upload_dir
+
+        self.assertEqual(response.status_code, 302)
+        insert_call = cursor.execute.call_args
+        values = insert_call.args[1]
+        self.assertEqual(values[-1], "Pending")
+        self.assertEqual(values[3], "unsafe-name.pdf")
+        self.assertTrue(values[4].endswith(".pdf"))
+        self.assertNotIn("unsafe-name", values[4])
+
+    def test_invalid_status_filter_is_rejected(self):
+        with patch.object(
+            app,
+            "_current_user",
+            return_value={"user_id": 4, "role": "admin"},
+        ):
+            response = self.client.get("/papers?status=Unknown")
+        self.assertEqual(response.status_code, 400)
 
 
 if __name__ == "__main__":

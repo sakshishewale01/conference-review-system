@@ -23,7 +23,7 @@ Review assigned papers and provide detailed feedback.
 
     <div class="stat-card">
 
-        <h2>12</h2>
+        <h2>{{ total_assignments }}</h2>
 
         <p>Assigned Papers</p>
 
@@ -33,7 +33,7 @@ Review assigned papers and provide detailed feedback.
 
     <div class="stat-card">
 
-        <h2>8</h2>
+        <h2>{{ completed_reviews }}</h2>
 
         <p>Completed Reviews</p>
 
@@ -43,12 +43,48 @@ Review assigned papers and provide detailed feedback.
 
     <div class="stat-card">
 
-        <h2>4</h2>
+        <h2>{{ pending_reviews }}</h2>
 
         <p>Pending Reviews</p>
 
     </div>
 
+</div>
+
+<div class="card">
+    <h2 style="margin-bottom:20px;">My Assignments</h2>
+    {% if assignments %}
+    <div style="overflow-x:auto;">
+        <table>
+            <thead>
+                <tr>
+                    <th>Paper</th>
+                    <th>Paper Status</th>
+                    <th>Review Status</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for assignment in assignments %}
+                <tr>
+                    <td>{{ assignment.title }}</td>
+                    <td>{{ assignment.status }}</td>
+                    <td>{{ assignment.review_status }}</td>
+                    <td>
+                        {% if assignment.review_status == "Pending" %}
+                        <a href="{{ url_for('review') }}">Submit review</a>
+                        {% else %}
+                        Review submitted
+                        {% endif %}
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p style="color:var(--muted);">No papers have been assigned to you yet.</p>
+    {% endif %}
 </div>
 
 

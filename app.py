@@ -469,6 +469,20 @@ def admin_dashboard():
                 WHERE role='reviewer'
             """)
             total_reviewers = cur.fetchone()["total"]
+
+            cur.execute("SELECT COUNT(*) AS total FROM review_assignments")
+            total_assignments = cur.fetchone()["total"]
+
+            cur.execute("SELECT COUNT(*) AS total FROM reviews")
+            completed_reviews = cur.fetchone()["total"]
+
+            cur.execute("""
+                SELECT COUNT(*) AS total
+                FROM review_assignments AS ra
+                LEFT JOIN reviews AS r ON r.assignment_id = ra.assignment_id
+                WHERE r.review_id IS NULL
+            """)
+            pending_reviews = cur.fetchone()["total"]
     except (MySQLError, RuntimeError) as error:
         app.logger.error(
             "Dashboard database operation failed: %s",
@@ -481,7 +495,10 @@ def admin_dashboard():
         total_papers=total_papers,
         accepted_papers=accepted_papers,
         rejected_papers=rejected_papers,
-        total_reviewers=total_reviewers
+        total_reviewers=total_reviewers,
+        total_assignments=total_assignments,
+        completed_reviews=completed_reviews,
+        pending_reviews=pending_reviews,
     )
 
 
@@ -493,9 +510,38 @@ def admin_dashboard():
 @app.route("/reviewer_dashboard")
 @role_required("reviewer")
 def reviewer_dashboard():
+    try:
+        with cursor_scope(dictionary=True) as (conn, cur):
+            cur.execute("""
+                SELECT ra.assignment_id, ra.paper_id, p.title, p.status,
+                       p.submitted_at,
+                       CASE WHEN r.review_id IS NULL
+                            THEN 'Pending' ELSE 'Completed' END AS review_status
+                FROM review_assignments AS ra
+                JOIN papers AS p ON p.paper_id = ra.paper_id
+                LEFT JOIN reviews AS r ON r.assignment_id = ra.assignment_id
+                WHERE ra.reviewer_id=%s
+                ORDER BY ra.assigned_at DESC
+                LIMIT 100
+            """, (session["user_id"],))
+            assignments = cur.fetchall()
+    except (MySQLError, RuntimeError) as error:
+        app.logger.error(
+            "Reviewer dashboard database operation failed: %s",
+            type(error).__name__
+        )
+        return jsonify(error="Database temporarily unavailable"), 503
 
+    completed_reviews = sum(
+        assignment["review_status"] == "Completed"
+        for assignment in assignments
+    )
     return render_template(
-        "dashboard/reviewer_dashboard.html"
+        "dashboard/reviewer_dashboard.html",
+        assignments=assignments,
+        total_assignments=len(assignments),
+        completed_reviews=completed_reviews,
+        pending_reviews=len(assignments) - completed_reviews,
     )
 
 
@@ -725,11 +771,34 @@ def reviewers():
 @role_required("admin")
 def assign():
     if request.method == "POST":
-        paper_id = request.form["paper_id"]
-        reviewer_id = request.form["reviewer_id"]
+        try:
+            paper_id = int(request.form["paper_id"])
+            reviewer_id = int(request.form["reviewer_id"])
+        except (KeyError, TypeError, ValueError):
+            flash("Select a valid paper and reviewer.", "danger")
+            return redirect(url_for("assign"))
 
         try:
             with cursor_scope(dictionary=True) as (conn, cur):
+                cur.execute(
+                    "SELECT paper_id FROM papers WHERE paper_id=%s",
+                    (paper_id,),
+                )
+                if not cur.fetchone():
+                    flash("The selected paper does not exist.", "danger")
+                    return redirect(url_for("assign"))
+
+                cur.execute(
+                    """
+                    SELECT user_id FROM users
+                    WHERE user_id=%s AND role='reviewer'
+                    """,
+                    (reviewer_id,),
+                )
+                if not cur.fetchone():
+                    flash("The selected account is not a reviewer.", "danger")
+                    return redirect(url_for("assign"))
+
                 cur.execute("""
                     SELECT *
                     FROM review_assignments
@@ -789,6 +858,19 @@ def assign():
                 WHERE role = 'reviewer'
             """)
             reviewers = cur.fetchall()
+
+            cur.execute("""
+                SELECT ra.assignment_id, p.title, u.full_name,
+                       CASE WHEN r.review_id IS NULL
+                            THEN 'Pending' ELSE 'Completed' END AS review_status
+                FROM review_assignments AS ra
+                JOIN papers AS p ON p.paper_id = ra.paper_id
+                JOIN users AS u ON u.user_id = ra.reviewer_id
+                LEFT JOIN reviews AS r ON r.assignment_id = ra.assignment_id
+                ORDER BY ra.assigned_at DESC
+                LIMIT 100
+            """)
+            assignments = cur.fetchall()
     except (MySQLError, RuntimeError) as error:
         app.logger.error(
             "Assignment page database operation failed: %s",
@@ -799,7 +881,8 @@ def assign():
     return render_template(
         "reviews/assign.html",
         papers=papers,
-        reviewers=reviewers
+        reviewers=reviewers,
+        assignments=assignments,
     )
 
 # =====================================================
@@ -872,6 +955,17 @@ def review():
                 if not cur.fetchone():
                     abort(404)
 
+                cur.execute(
+                    "SELECT review_id FROM reviews WHERE assignment_id=%s",
+                    (assignment_id,),
+                )
+                if cur.fetchone():
+                    flash(
+                        "This assignment already has a submitted review.",
+                        "warning"
+                    )
+                    return redirect(url_for("review"))
+
                 cur.execute("""
                     INSERT INTO reviews
                     (
@@ -914,15 +1008,18 @@ def review():
         )
 
         return redirect(
-            url_for("admin_dashboard")
+            url_for("reviewer_dashboard")
         )
 
     try:
         with cursor_scope(dictionary=True) as (conn, cur):
             cur.execute("""
-                SELECT *
-                FROM review_assignments
-                WHERE reviewer_id=%s
+                SELECT ra.assignment_id, ra.paper_id, p.title, p.status
+                FROM review_assignments AS ra
+                JOIN papers AS p ON p.paper_id = ra.paper_id
+                LEFT JOIN reviews AS r ON r.assignment_id = ra.assignment_id
+                WHERE ra.reviewer_id=%s AND r.review_id IS NULL
+                ORDER BY ra.assigned_at DESC
             """, (session["user_id"],))
             assignments = cur.fetchall()
     except (MySQLError, RuntimeError) as error:

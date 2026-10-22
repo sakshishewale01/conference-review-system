@@ -17,7 +17,7 @@ Submit Review
 color:var(--muted);
 margin-bottom:35px;
 ">
-Evaluate assigned research papers.
+Evaluate one of your assigned research papers. Each assignment can be reviewed once.
 </p>
 
 
@@ -36,7 +36,7 @@ Evaluate assigned research papers.
 
 <option value="{{ assignment.assignment_id }}">
 
-Assignment #{{ assignment.assignment_id }}
+Assignment #{{ assignment.assignment_id }}{% if assignment.title %} - {{ assignment.title }}{% endif %}
 
 </option>
 

@@ -76,7 +76,7 @@ Pending
 <td>
 
 <a
-href="/{{ paper.uploaded_file_path }}"
+href="{{ url_for('download_paper', paper_id=paper.paper_id) }}"
 target="_blank"
 style="color:var(--gold);">
 

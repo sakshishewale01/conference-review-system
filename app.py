@@ -6,7 +6,9 @@ from flask import (
     url_for,
     flash,
     session,
-    jsonify
+    jsonify,
+    abort,
+    send_file
 )
 
 from db import cursor_scope
@@ -19,6 +21,10 @@ from werkzeug.security import (
 from werkzeug.utils import secure_filename
 
 import os
+import re
+import secrets
+from functools import wraps
+from email.utils import parseaddr
 
 from mysql.connector import Error as MySQLError
 from dotenv import load_dotenv
@@ -41,9 +47,140 @@ if not secret_key:
 
 app.secret_key = secret_key
 
-UPLOAD_FOLDER = os.path.join(app.root_path, "static", "uploads")
+UPLOAD_FOLDER = os.path.join(app.instance_path, "uploads")
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = (
+    os.getenv("FLASK_ENV", "development").lower() == "production"
+)
+app.config["PERMANENT_SESSION_LIFETIME"] = 3600
+app.config["ALLOWED_UPLOAD_EXTENSIONS"] = {"pdf"}
+app.config["MAX_NAME_LENGTH"] = 150
+app.config["MAX_EMAIL_LENGTH"] = 150
+app.config["MIN_PASSWORD_LENGTH"] = 12
+
+
+def _csrf_token():
+    token = session.get("_csrf_token")
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session["_csrf_token"] = token
+    return token
+
+
+def _validate_csrf():
+    expected = session.get("_csrf_token")
+    submitted = request.form.get("_csrf_token") or request.headers.get(
+        "X-CSRF-Token"
+    )
+    if not expected or not submitted or not secrets.compare_digest(
+        expected, submitted
+    ):
+        abort(400, description="Invalid CSRF token")
+
+
+@app.context_processor
+def inject_csrf_token():
+    return {"csrf_token": _csrf_token}
+
+
+@app.before_request
+def protect_state_changing_requests():
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+        _validate_csrf()
+
+
+def _current_user():
+    user_id = session.get("user_id")
+    if not user_id:
+        return None
+
+    with cursor_scope(dictionary=True) as (conn, cur):
+        cur.execute(
+            """
+            SELECT user_id, full_name, email, role
+            FROM users
+            WHERE user_id=%s
+            """,
+            (user_id,),
+        )
+        return cur.fetchone()
+
+
+def login_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        try:
+            user = _current_user()
+        except (MySQLError, RuntimeError):
+            return jsonify(error="Authentication temporarily unavailable"), 503
+        if not user:
+            flash("Please log in to continue.", "warning")
+            return redirect(url_for("login"))
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
+def role_required(*allowed_roles):
+    def decorator(view):
+        @wraps(view)
+        def wrapped(*args, **kwargs):
+            try:
+                user = _current_user()
+            except (MySQLError, RuntimeError):
+                return jsonify(error="Authorization temporarily unavailable"), 503
+            if not user:
+                flash("Please log in to continue.", "warning")
+                return redirect(url_for("login"))
+            if user["role"] not in allowed_roles:
+                abort(403)
+            return view(*args, **kwargs)
+
+        return wrapped
+
+    return decorator
+
+
+def _clean_text(value, field_name, max_length):
+    value = (value or "").strip()
+    if not value:
+        raise ValueError(f"{field_name} is required.")
+    if len(value) > max_length:
+        raise ValueError(f"{field_name} is too long.")
+    return value
+
+
+def _clean_email(value):
+    email = (value or "").strip().lower()
+    parsed_name, parsed_email = parseaddr(email)
+    if (
+        parsed_name
+        or parsed_email != email
+        or len(email) > app.config["MAX_EMAIL_LENGTH"]
+        or not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email)
+    ):
+        raise ValueError("Enter a valid email address.")
+    return email
+
+
+def _safe_next_url(value):
+    if value and value.startswith("/") and not value.startswith("//"):
+        return value
+    return url_for("author_dashboard")
+
+
+def _allowed_upload(filename):
+    return (
+        bool(filename)
+        and "." in filename
+        and filename.rsplit(".", 1)[1].lower()
+        in app.config["ALLOWED_UPLOAD_EXTENSIONS"]
+    )
 
 
 # =====================================================
@@ -73,6 +210,21 @@ def internal_server_error(error):
     ), 500
 
 
+@app.errorhandler(400)
+def bad_request(error):
+    return jsonify(error="Bad request"), 400
+
+
+@app.errorhandler(403)
+def forbidden(error):
+    return jsonify(error="Forbidden"), 403
+
+
+@app.errorhandler(413)
+def request_too_large(error):
+    return jsonify(error="Uploaded file is too large"), 413
+
+
 
 # =====================================================
 # HOME PAGE
@@ -92,14 +244,21 @@ def home():
 def register():
 
     if request.method == "POST":
-
-        full_name = request.form["full_name"]
-
-        email = request.form["email"]
-
-        password = request.form["password"]
-
-        role = request.form["role"]
+        try:
+            full_name = _clean_text(
+                request.form.get("full_name"),
+                "Full name",
+                app.config["MAX_NAME_LENGTH"],
+            )
+            email = _clean_email(request.form.get("email"))
+            password = request.form.get("password", "")
+            if len(password) < app.config["MIN_PASSWORD_LENGTH"]:
+                raise ValueError(
+                    "Password must be at least 12 characters long."
+                )
+        except ValueError as error:
+            flash(str(error), "danger")
+            return render_template("auth/register.html"), 400
 
         hashed_password = generate_password_hash(password)
 
@@ -114,7 +273,7 @@ def register():
 
                 if existing_user:
                     flash(
-                        "Email already exists!",
+                        "Unable to create account with those details.",
                         "warning"
                     )
                     return redirect(url_for("register"))
@@ -132,9 +291,8 @@ def register():
                     full_name,
                     email,
                     hashed_password,
-                    role
+                    "author"
                 ))
-
                 conn.commit()
         except (MySQLError, RuntimeError) as error:
             app.logger.error(
@@ -166,10 +324,14 @@ def register():
 def login():
 
     if request.method == "POST":
-
-        email = request.form["email"]
-
-        password = request.form["password"]
+        try:
+            email = _clean_email(request.form.get("email"))
+            password = request.form.get("password", "")
+            if not password:
+                raise ValueError("Email and password are required.")
+        except ValueError:
+            flash("Invalid email or password.", "danger")
+            return render_template("auth/login.html"), 400
 
         try:
             with cursor_scope(dictionary=True) as (conn, cur):
@@ -193,12 +355,10 @@ def login():
             user["password"],
             password
         ):
-
+            target = _safe_next_url(request.args.get("next"))
+            session.clear()
             session["user_id"] = user["user_id"]
-
-            session["full_name"] = user["full_name"]
-
-            session["role"] = user["role"]
+            session.permanent = True
 
             flash(
                 "Login successful!",
@@ -207,18 +367,20 @@ def login():
 
             # ROLE BASED DASHBOARD
             if user["role"] == "admin":
-                return redirect(url_for("admin_dashboard"))
+                target = url_for("admin_dashboard")
 
             elif user["role"] == "reviewer":
-                return redirect(url_for("reviewer_dashboard"))
+                target = url_for("reviewer_dashboard")
 
             else:
-                return redirect(url_for("author_dashboard"))
+                target = target or url_for("author_dashboard")
+
+            return redirect(target)
 
         else:
 
             flash(
-                "Invalid email or password!",
+                "Invalid email or password.",
                 "danger"
             )
 
@@ -230,7 +392,8 @@ def login():
 # LOGOUT
 # =====================================================
 
-@app.route("/logout")
+@app.route("/logout", methods=["POST"])
+@login_required
 def logout():
 
     session.clear()
@@ -249,6 +412,7 @@ def logout():
 # =====================================================
 
 @app.route("/admin_dashboard")
+@role_required("admin")
 def admin_dashboard():
     try:
         with cursor_scope(dictionary=True) as (conn, cur):
@@ -300,6 +464,7 @@ def admin_dashboard():
 # =====================================================
 
 @app.route("/reviewer_dashboard")
+@role_required("reviewer")
 def reviewer_dashboard():
 
     return render_template(
@@ -313,6 +478,7 @@ def reviewer_dashboard():
 # =====================================================
 
 @app.route("/author_dashboard")
+@role_required("author")
 def author_dashboard():
 
     return render_template(
@@ -329,27 +495,33 @@ def author_dashboard():
     "/submit_paper",
     methods=["GET", "POST"]
 )
+@role_required("author", "admin")
 def submit_paper():
 
     if request.method == "POST":
+        try:
+            title = _clean_text(request.form.get("title"), "Title", 255)
+            abstract = _clean_text(
+                request.form.get("abstract"), "Abstract", 10000
+            )
+            keywords = _clean_text(
+                request.form.get("keywords"), "Keywords", 1000
+            )
+        except ValueError as error:
+            flash(str(error), "danger")
+            return render_template("papers/submit_paper.html"), 400
 
-        title = request.form["title"]
+        paper_file = request.files.get("paper_file")
+        filename = secure_filename(paper_file.filename if paper_file else "")
+        if not paper_file or not filename or not _allowed_upload(filename):
+            flash("Please upload a PDF file.", "danger")
+            return render_template("papers/submit_paper.html"), 400
 
-        abstract = request.form["abstract"]
-
-        keywords = request.form["keywords"]
-
-        paper_file = request.files["paper_file"]
-
-        filename = secure_filename(
-            paper_file.filename
-        )
-
+        stored_filename = f"{secrets.token_hex(16)}.pdf"
         filepath = os.path.join(
             app.config["UPLOAD_FOLDER"],
-            filename
+            stored_filename
         )
-
         paper_file.save(filepath)
 
         try:
@@ -373,6 +545,8 @@ def submit_paper():
                 ))
                 conn.commit()
         except (MySQLError, RuntimeError) as error:
+            if os.path.exists(filepath):
+                os.remove(filepath)
             app.logger.error(
                 "Paper submission database operation failed: %s",
                 type(error).__name__
@@ -401,6 +575,7 @@ def submit_paper():
 # =====================================================
 
 @app.route("/papers")
+@login_required
 def papers():
     try:
         with cursor_scope(dictionary=True) as (conn, cur):
@@ -429,6 +604,7 @@ def papers():
 # =====================================================
 
 @app.route("/reviewers")
+@role_required("admin")
 def reviewers():
     try:
         with cursor_scope(dictionary=True) as (conn, cur):
@@ -457,6 +633,7 @@ def reviewers():
 # =====================================================
 
 @app.route("/assign", methods=["GET", "POST"])
+@role_required("admin")
 def assign():
     if request.method == "POST":
         paper_id = request.form["paper_id"]
@@ -544,34 +721,44 @@ def assign():
     "/review",
     methods=["GET", "POST"]
 )
+@role_required("reviewer")
 def review():
     if request.method == "POST":
+        try:
+            assignment_id = int(request.form["assignment_id"])
+            scores = [
+                float(request.form[field])
+                for field in (
+                    "technical_merit",
+                    "readability",
+                    "originality",
+                    "relevance",
+                )
+            ]
+            if any(score < 1 or score > 10 for score in scores):
+                raise ValueError
+            (
+                technical_merit,
+                readability,
+                originality,
+                relevance,
+            ) = scores
+            recommendation = request.form["recommendation"]
+            if recommendation not in {"Accepted", "Rejected", "Borderline"}:
+                raise ValueError
+            review_comment = _clean_text(
+                request.form.get("review_comment"),
+                "Review comments",
+                10000,
+            )
+        except (KeyError, TypeError, ValueError):
+            flash("Enter valid review details.", "danger")
+            return render_template(
+                "reviews/review.html",
+                assignments=[],
+            ), 400
 
-        assignment_id = request.form["assignment_id"]
-
-        technical_merit = float(
-            request.form["technical_merit"]
-        )
-
-        readability = float(
-            request.form["readability"]
-        )
-
-        originality = float(
-            request.form["originality"]
-        )
-
-        relevance = float(
-            request.form["relevance"]
-        )
-
-        recommendation = request.form[
-            "recommendation"
-        ]
-
-        review_comment = request.form[
-            "review_comment"
-        ]
+        user_id = session["user_id"]
 
         overall_score = round(
             (
@@ -585,6 +772,17 @@ def review():
 
         try:
             with cursor_scope(dictionary=True) as (conn, cur):
+                cur.execute(
+                    """
+                    SELECT assignment_id
+                    FROM review_assignments
+                    WHERE assignment_id=%s AND reviewer_id=%s
+                    """,
+                    (assignment_id, user_id),
+                )
+                if not cur.fetchone():
+                    abort(404)
+
                 cur.execute("""
                     INSERT INTO reviews
                     (
@@ -635,7 +833,8 @@ def review():
             cur.execute("""
                 SELECT *
                 FROM review_assignments
-            """)
+                WHERE reviewer_id=%s
+            """, (session["user_id"],))
             assignments = cur.fetchall()
     except (MySQLError, RuntimeError) as error:
         app.logger.error(
@@ -648,6 +847,39 @@ def review():
         "reviews/review.html",
         assignments=assignments
     )
+
+
+@app.route("/papers/<int:paper_id>/download", methods=["GET"])
+@login_required
+def download_paper(paper_id):
+    try:
+        with cursor_scope(dictionary=True) as (conn, cur):
+            cur.execute(
+                """
+                SELECT uploaded_file_path
+                FROM papers
+                WHERE paper_id=%s
+                """,
+                (paper_id,),
+            )
+            paper = cur.fetchone()
+    except (MySQLError, RuntimeError):
+        return jsonify(error="File temporarily unavailable"), 503
+
+    if not paper or not paper["uploaded_file_path"]:
+        abort(404)
+
+    path = os.path.abspath(paper["uploaded_file_path"])
+    upload_root = os.path.abspath(app.config["UPLOAD_FOLDER"])
+    legacy_root = os.path.abspath(os.path.join(app.root_path, "static", "uploads"))
+    if not any(
+        os.path.commonpath([path, root]) == root
+        for root in (upload_root, legacy_root)
+    ):
+        abort(404)
+    if not os.path.isfile(path):
+        abort(404)
+    return send_file(path, as_attachment=False)
 
 
 

@@ -53,11 +53,20 @@ href="{{ url_for('static', filename='css/style.css') }}"
 
         <a href="/review">Review</a>
 
+        {% if session.get("user_id") %}
+        <form method="POST" action="{{ url_for('logout') }}" style="display:inline;">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" style="background:none;border:0;color:var(--muted);cursor:pointer;">
+                Logout
+            </button>
+        </form>
+        {% else %}
         <a href="/login">Login</a>
 
         <a href="/register" class="nav-btn">
             Register
         </a>
+        {% endif %}
 
     </div>
 

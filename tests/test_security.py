@@ -63,6 +63,35 @@ class SecurityTests(unittest.TestCase):
         self.assertIn("author", insert_call.args[1])
         self.assertNotIn("long enough password", insert_call.args[1])
 
+    def test_duplicate_registration_has_safe_message(self):
+        connection = MagicMock()
+        cursor = MagicMock()
+        cursor.fetchone.return_value = {"user_id": 4}
+        connection.cursor.return_value = cursor
+
+        @contextmanager
+        def fake_scope(dictionary=False):
+            yield connection, cursor
+
+        token = self._csrf_token("/register")
+        with patch.object(app, "cursor_scope", fake_scope):
+            response = self.client.post(
+                "/register",
+                data={
+                    "_csrf_token": token,
+                    "full_name": "Existing User",
+                    "email": "existing@example.com",
+                    "password": "long enough password",
+                },
+                follow_redirects=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            b"Unable to create account with those details.",
+            response.data,
+        )
+
     def test_login_stores_only_user_id(self):
         connection = MagicMock()
         cursor = MagicMock()

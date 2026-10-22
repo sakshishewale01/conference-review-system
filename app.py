@@ -211,6 +211,19 @@ def _create_notification(cursor, recipient_id, title, message, link, event_key):
     )
 
 
+def _database_error_details(error):
+    """Return non-secret database diagnostics suitable for server logs."""
+    return {
+        "error_type": type(error).__name__,
+        "errno": getattr(error, "errno", None),
+        "sqlstate": getattr(error, "sqlstate", None),
+    }
+
+
+def _is_duplicate_database_error(error):
+    return getattr(error, "errno", None) == 1062
+
+
 def _clean_email(value):
     email = (value or "").strip().lower()
     parsed_name, parsed_email = parseaddr(email)
@@ -380,8 +393,14 @@ def register():
         except (MySQLError, RuntimeError) as error:
             app.logger.error(
                 "Registration database operation failed: %s",
-                type(error).__name__
+                _database_error_details(error)
             )
+            if _is_duplicate_database_error(error):
+                flash(
+                    "An account with that email already exists.",
+                    "warning"
+                )
+                return redirect(url_for("register"))
             flash(
                 "Registration is temporarily unavailable. Please try again.",
                 "danger"
@@ -426,7 +445,7 @@ def login():
         except (MySQLError, RuntimeError) as error:
             app.logger.error(
                 "Login database operation failed: %s",
-                type(error).__name__
+                _database_error_details(error)
             )
             flash(
                 "Login is temporarily unavailable. Please try again.",

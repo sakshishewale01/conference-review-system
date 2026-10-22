@@ -1,0 +1,15 @@
+-- ConferenceFlow Phase 5 review constraints proposal.
+-- Review existing duplicate data and obtain approval before applying.
+--
+-- SELECT assignment_id, COUNT(*) AS review_count
+-- FROM reviews
+-- GROUP BY assignment_id
+-- HAVING COUNT(*) > 1;
+--
+-- ALTER TABLE review_assignments
+-- ADD CONSTRAINT uq_review_assignment_pair
+-- UNIQUE (paper_id, reviewer_id);
+--
+-- ALTER TABLE reviews
+-- ADD CONSTRAINT uq_review_assignment
+-- UNIQUE (assignment_id);

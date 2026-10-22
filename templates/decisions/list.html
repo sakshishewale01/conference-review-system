@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+    <h1>Final Decisions</h1>
+    <p style="color:var(--muted);">Review completed evaluations before releasing an official outcome.</p>
+    <div class="table-container">
+        <table>
+            <thead><tr><th>Paper</th><th>Assigned</th><th>Completed</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+            {% for paper in papers %}
+            <tr>
+                <td>{{ paper.title }}</td>
+                <td>{{ paper.assigned_reviews }}</td>
+                <td>{{ paper.completed_reviews }}</td>
+                <td>{{ paper.status }}</td>
+                <td><a href="{{ url_for('record_decision', paper_id=paper.paper_id) }}">Review decision</a></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5">No papers are available for decision.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

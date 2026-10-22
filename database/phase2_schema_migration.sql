@@ -1,0 +1,37 @@
+-- NOT EXECUTED BY PHASE 2.
+-- Apply only after inspecting an existing local database and approving a
+-- data-repair plan. Never run this file against production automatically.
+
+-- 1. Inspect possible data conflicts before adding constraints:
+-- SELECT paper_id, reviewer_id, COUNT(*) AS duplicate_count
+-- FROM review_assignments
+-- GROUP BY paper_id, reviewer_id
+-- HAVING COUNT(*) > 1;
+--
+-- SELECT assignment_id, COUNT(*) AS review_count
+-- FROM reviews
+-- GROUP BY assignment_id
+-- HAVING COUNT(*) > 1;
+--
+-- SELECT COUNT(*) AS papers_without_owner
+-- FROM papers
+-- WHERE author_id IS NULL;
+
+-- 2. After reviewing existing data, add ownership:
+-- ALTER TABLE papers
+--     ADD COLUMN author_id INT NULL AFTER paper_id;
+--
+-- ALTER TABLE papers
+--     ADD CONSTRAINT fk_papers_author
+--     FOREIGN KEY (author_id) REFERENCES users(user_id);
+--
+-- 3. After resolving duplicate assignments:
+-- ALTER TABLE review_assignments
+--     ADD CONSTRAINT uq_review_assignment
+--     UNIQUE (paper_id, reviewer_id);
+--
+-- 4. Only if the workflow permits one review per assignment:
+-- ALTER TABLE reviews
+--     ADD CONSTRAINT uq_review_assignment_review
+--     UNIQUE (assignment_id);
+

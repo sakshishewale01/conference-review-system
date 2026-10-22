@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+    <h1>Notifications</h1>
+    <form method="POST" action="{{ url_for('mark_all_notifications_read') }}" style="margin:15px 0;">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-dark" type="submit">Mark all as read</button>
+    </form>
+    {% for notification in notifications %}
+    <article style="padding:18px 0;border-bottom:1px solid var(--border);{% if not notification.read_at %}font-weight:700;{% endif %}">
+        <h2>{{ notification.title }}</h2>
+        <p>{{ notification.message }}</p>
+        <small>{{ notification.created_at }}</small>
+        {% if notification.link %}<a href="{{ notification.link }}">Open</a>{% endif %}
+        {% if not notification.read_at %}
+        <form method="POST" action="{{ url_for('mark_notification_read', notification_id=notification.notification_id) }}" style="display:inline;">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <button type="submit">Mark read</button>
+        </form>
+        {% endif %}
+    </article>
+    {% else %}
+    <p style="color:var(--muted);">You have no notifications.</p>
+    {% endfor %}
+</div>
+{% endblock %}

@@ -19,6 +19,10 @@ from werkzeug.utils import secure_filename
 
 import os
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 
 
 # =====================================================
@@ -27,10 +31,15 @@ import os
 
 app = Flask(__name__)
 
-app.secret_key = "super_secret_key"
+secret_key = os.getenv("FLASK_SECRET_KEY")
+if not secret_key:
+    raise RuntimeError(
+        "FLASK_SECRET_KEY is required. Copy .env.example to .env and set it."
+    )
 
+app.secret_key = secret_key
 
-UPLOAD_FOLDER = "static/uploads"
+UPLOAD_FOLDER = os.path.join(app.root_path, "static", "uploads")
 
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
@@ -662,5 +671,5 @@ def review():
 if __name__ == "__main__":
 
     app.run(
-        debug=True
+        debug=os.getenv("FLASK_DEBUG", "false").lower() == "true"
     )

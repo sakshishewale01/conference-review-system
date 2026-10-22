@@ -86,11 +86,23 @@ pip install -r requirements.txt
 
 Create a `.env` file using `.env.example`.
 
+The `.env` file is local-only and must never be committed. Set the Flask
+secret key and MySQL connection values before starting the application.
+
 5. Start the server
 
 ```bash
 python app.py
 ```
+
+## Configuration
+
+The application reads its Flask and MySQL settings from environment
+variables. The repository includes [.env.example](.env.example) as a
+template; copy it to `.env` and replace the placeholder values.
+
+Never place real passwords, secret keys, or other credentials in tracked
+Python, SQL, or documentation files.
 
 Open:
 
